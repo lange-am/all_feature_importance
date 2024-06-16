@@ -16,9 +16,7 @@ from ._criterion cimport Criterion
 from libc.stdlib cimport qsort
 from libc.string cimport memcpy
 from libc.math cimport isnan
-# === RIT === 
-from libcpp.set cimport set as cset
-# === RIT ===
+from libcpp.set cimport set as cset  # === RIT === 
 from cython cimport final
 
 import numpy as np
@@ -183,6 +181,9 @@ cdef class Splitter:
         self.feature_values = np.empty(n_samples, dtype=np.float32)
         self.constant_features = np.empty(n_features, dtype=np.intp)
 
+        self.features_in_tree.clear()
+        self.features_in_tree_importances = np.zeros(n_features, dtype=np.float64)
+
         self.y = y
 
         self.sample_weight = sample_weight
@@ -304,120 +305,83 @@ cdef void swap_features(
 #     return -x if x < 0. else x
 
 cdef SIZE_t find_best_feature(
+    Splitter splitter,
     # array of split impurity improvements
-    const cvector[double]& splits_prximp, 
+    const cvector[double]& split_improvements, 
     # type of split feature: not in-tree, in-tree or in-tree from remained   
     const cvector[SIZE_t]& splits_intree, 
     const cvector[SplitRecord]& splits, 
-    const double rit_alpha) nogil:
+    const double rit_alpha
+) nogil:
     """Returns index of the selected feature.
     If the index is undefined, then returns the length of the input arrays. 
     """
     cdef double best = -INFINITY 
-    cdef double worst = INFINITY
-    cdef double curr
+    cdef double curr, curr_local, lowb_local
 
-    cdef SIZE_t L = splits_prximp.size()
+    cdef SIZE_t L = split_improvements.size()
     cdef SIZE_t best_k = L
-    cdef SIZE_t worst_k = L
     cdef SIZE_t best_intree_k = L
     cdef SIZE_t k, intree
 
-# # TMP
-#     for k in range(L):
-#         curr = splits_prximp[k]
-#         if curr > best:
-#             best = curr
-#             best_k = k
-
-#     return best_k # TMP
-# # TMP
-
-    # with gil:
-    #     print('[', end='')
     for k in range(L):
         intree = splits_intree[k]
         if intree < 2:  # not from remained in-tree
-            curr = splits_prximp[k]
-            # with gil:
-            #     print(
-            #         splits[k].feature, 'best:', best, 'worst:', worst, 
-            #         'intree:', intree, 
-            #         (curr == best and intree == 1), (curr == worst and intree == 0), end='; ')
+            curr = split_improvements[k]
             if curr > best or (curr == best and intree == 1):
                 best = curr
                 best_k = k
-            if curr < worst or (curr == worst and intree == 0):
-                worst = curr
-                worst_k = k
-            # with gil:
-            #     print(
-            #         '{curr:', curr, 'best:', best, 'worst:', worst, 'wb:', 
-            #         splits[worst_k].feature, splits[best_k].feature, '}', end=' ')
-    # with gil:
-    #     print(']', end='. ')
-
-    if best_k == L or worst_k == L:
+    if best_k == L:
         return L
 
-    # with gil:
-    #     print('wb:', splits[worst_k].feature, splits[best_k].feature)
-
-    # closest to best
-    # best = INFINITY
+    # best = - INFINITY
     # for k in range(L):
     #     intree = splits_intree[k]
-    #     curr = fabs(splits_prximp[k] - splits_prximp[best_k])
+    #     curr = split_improvements[k]
     #     # if intree == 0:
     #     #     with gil:
-    #     #         print(splits[k].feature, 'delta:', curr, end=', ')
+    #     #         print(splits[k].feature, 'curr:', curr, end=', ')
     #     # elif intree == 1:
     #     #     with gil:
-    #     #         print('(', splits[k].feature, ')', 'delta:', curr, end=', ')
+    #     #         print('(', splits[k].feature, ')', 'curr:', curr, end=', ')
     #     # else:
     #     #     with gil:
-    #     #         print('[', splits[k].feature, ']', 'delta:', curr, end=', ')
+    #     #         print('[', splits[k].feature, ']', 'curr:', curr, end=', ')
     #     if intree > 0:  # in-tree feature
-    #         if curr < best or (curr == best and intree == 1):
+    #         if curr > best or (curr == best and intree == 1):
     #             best = curr
     #             best_intree_k = k
     #         # with gil:
     #         #     print('best_intree_k:', best_intree_k, end=', ') 
 
     # if best_intree_k < L:
-    #     curr = (splits_prximp[best_k] - splits_prximp[worst_k]) * ALPHA
-    #     if best < curr or (best == curr and splits_intree[best_k] == 0):
+    #     # curr = (split_improvements[best_k] - split_improvements[worst_k]) * ALPHA
+    #     curr = split_improvements[best_k] * (1 - rit_alpha)
+    #     if best > curr or (best == curr and splits_intree[best_k] == 0):
     #         # with gil:
     #         #     print('in-tree feature selected', splits[best_intree_k].feature, 'thresh:', curr)
     #         return best_intree_k
 
-    best = - INFINITY
+    # return best_k
+
+    lowb_local = split_improvements[best_k] * (1-rit_alpha)
+    best = -INFINITY
     for k in range(L):
         intree = splits_intree[k]
-        curr = splits_prximp[k]
-        # if intree == 0:
-        #     with gil:
-        #         print(splits[k].feature, 'curr:', curr, end=', ')
-        # elif intree == 1:
-        #     with gil:
-        #         print('(', splits[k].feature, ')', 'curr:', curr, end=', ')
-        # else:
-        #     with gil:
-        #         print('[', splits[k].feature, ']', 'curr:', curr, end=', ')
-        if intree > 0:  # in-tree feature
+        curr_local = split_improvements[k]
+        if intree > 0 and (
+            curr_local > lowb_local or (
+                curr_local == lowb_local and intree == 0
+            )
+        ):
+            curr = splitter.features_in_tree_importances[splits[k].feature]
+            # curr = curr_local # old variant
             if curr > best or (curr == best and intree == 1):
                 best = curr
                 best_intree_k = k
-            # with gil:
-            #     print('best_intree_k:', best_intree_k, end=', ') 
 
     if best_intree_k < L:
-        # curr = (splits_prximp[best_k] - splits_prximp[worst_k]) * ALPHA
-        curr = splits_prximp[best_k] * (1 - rit_alpha)
-        if best > curr or (best == curr and splits_intree[best_k] == 0):
-            # with gil:
-            #     print('in-tree feature selected', splits[best_intree_k].feature, 'thresh:', curr)
-            return best_intree_k
+        return best_intree_k
 
     return best_k
 # === RIT === end
@@ -459,7 +423,7 @@ cdef inline int node_split_best(
     cdef double rit_alpha = splitter.rit_alpha
 
     cdef SplitRecord current_split, best_split
-    cdef double current_proxy_improvement, best_proxy_improvement
+    cdef double current_improvement, best_improvement # === RIT
 
     cdef SIZE_t f_i = n_features
     cdef SIZE_t f_j
@@ -477,7 +441,7 @@ cdef inline int node_split_best(
 
     # === RIT === begin
     # Indices in 'features' array of the features
-    # that are already in the decision tree (were used before) 
+    # that are already in the decision tree (were used before)
     # and have not been processed yet
     cdef CSET in_tree_remained 
     in_tree_remained.insert(
@@ -496,7 +460,7 @@ cdef inline int node_split_best(
     cdef SIZE_t best_k
 
     cdef cvector[SplitRecord] splits
-    cdef cvector[double] splits_prximp
+    cdef cvector[double] split_improvements
     cdef cvector[SIZE_t] splits_intree
     cdef cvector[SIZE_t] splits_fi
 
@@ -647,8 +611,10 @@ cdef inline int node_split_best(
 
         # Evaluate all splits to found the best threshold
         #
+        # === RIT ===
         _init_split(&best_split, end)
-        best_proxy_improvement = -INFINITY
+        best_improvement = -INFINITY
+        # === RIT ===
         # If there are missing values, then we search twice for the most optimal split.
         # The first search will have all the missing values going to the right node.
         # The second search will have all the missing values going to the left node.
@@ -686,19 +652,21 @@ cdef inline int node_split_best(
                         (criterion.weighted_n_right < min_weight_leaf)):
                     continue
 
+                # === RIT === begin
                 # current_proxy_improvement = criterion.proxy_impurity_improvement()
                 criterion.children_impurity(
                     &current_split.impurity_left, &current_split.impurity_right)
-                current_proxy_improvement = criterion.impurity_improvement(
+                current_improvement = criterion.impurity_improvement(
                     impurity,
                     current_split.impurity_left,
                     current_split.impurity_right
                 )
-                if current_proxy_improvement < 0:
-                    current_proxy_improvement *= -1
+                if current_improvement < 0:
+                    current_improvement *= -1
 
-                if current_proxy_improvement > best_proxy_improvement:
-                    best_proxy_improvement = current_proxy_improvement
+                if current_improvement > best_improvement:
+                    best_improvement = current_improvement
+                # === RIT === end
                     # sum of halves is used to avoid infinite value
                     current_split.threshold = (
                         feature_values[p_prev] / 2.0 + feature_values[p] / 2.0
@@ -732,29 +700,33 @@ cdef inline int node_split_best(
 
                 if not ((criterion.weighted_n_left < min_weight_leaf) or
                         (criterion.weighted_n_right < min_weight_leaf)):
+
+                    # === RIT === begin
                     # current_proxy_improvement = criterion.proxy_impurity_improvement()
                     criterion.children_impurity(
                         &current_split.impurity_left, &current_split.impurity_right)
-                    current_proxy_improvement = criterion.impurity_improvement(
+                    current_improvement = criterion.impurity_improvement(
                         impurity,
                         current_split.impurity_left,
                         current_split.impurity_right
                     )
-                    if current_proxy_improvement < 0:
-                        current_proxy_improvement *= -1
 
-                    if current_proxy_improvement > best_proxy_improvement:
-                        best_proxy_improvement = current_proxy_improvement
+                    if current_improvement < 0:
+                        current_improvement *= -1
+
+                    if current_improvement > best_improvement:
+                        best_improvement = current_improvement
                         current_split.threshold = INFINITY
                         current_split.missing_go_to_left = missing_go_to_left
                         current_split.n_missing = n_missing
                         current_split.pos = p
                         best_split = current_split
+                    # === RIT === end                        
 
     # === RIT === begin
         if best_split.pos < end:  # best split found
             splits.push_back(best_split) 
-            splits_prximp.push_back(best_proxy_improvement)
+            split_improvements.push_back(best_improvement)
             # with gil:
             #     print('best_proxy_improvement:', best_proxy_improvement)
             splits_intree.push_back(in_tree)
@@ -772,7 +744,7 @@ cdef inline int node_split_best(
         # for k in range(splits.size()):
         #     if not splits_intree[k]:
         #         with gil:
-        #             print(splits_prximp[k], end=' ')
+        #             print(split_improvements[k], end=' ')
         # with gil:
         #     print('', end='|')
         
@@ -781,11 +753,13 @@ cdef inline int node_split_best(
         # for k in range(splits.size()):
         #     if splits_intree[k]:
         #         with gil:
-        #             print(splits_prximp[k], end=' ')
+        #             print(split_improvements[k], end=' ')
         # with gil:
-        #     print('| max:', np.array(splits_prximp).max())
+        #     print('| max:', np.array(split_improvements).max())
 
-        best_k = find_best_feature(splits_prximp, splits_intree, splits, rit_alpha)
+        best_k = find_best_feature(
+            splitter, split_improvements, 
+            splits_intree, splits, rit_alpha)
 
         if best_k < splits.size():
             best_split = splits[best_k]
@@ -797,7 +771,7 @@ cdef inline int node_split_best(
                 pass
                 # with gil:
                 #     print('(', best_split.feature, ')')
-            else:
+            else: 
                 pass
                 # with gil:
                 #     print('[', best_split.feature, ']')
@@ -831,6 +805,10 @@ cdef inline int node_split_best(
         )
 
         shift_missing_values_to_left_if_required(&best_split, samples, end)
+        # === RIT === begin
+        splitter.features_in_tree_importances[best_split.feature] += \
+            best_split.improvement
+        # === RIT === end
 
     # Respect invariant for constant features: the original order of
     # element in features[:n_known_constants] must be preserved for sibling

@@ -197,6 +197,7 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
             Interval(RealNotInt, 0.0, 1.0, closed="right"),
             Interval(Integral, 1, None, closed="left"),
         ],
+        "importance_avrg": [StrOptions({"mean", "median"})]
     }
 
     @abstractmethod
@@ -215,6 +216,7 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         class_weight=None,
         max_samples=None,
         base_estimator="deprecated",
+        importance_avrg="mean"
     ):
         super().__init__(
             estimator=estimator,
@@ -231,6 +233,7 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         self.warm_start = warm_start
         self.class_weight = class_weight
         self.max_samples = max_samples
+        self.importance_avrg = importance_avrg
 
     def apply(self, X):
         """
@@ -617,11 +620,19 @@ class BaseForest(MultiOutputMixin, BaseEnsemble, metaclass=ABCMeta):
         if not all_importances:
             return np.zeros(self.n_features_in_, dtype=np.float64)
 
-        all_importances = np.nanmean(all_importances, axis=0, dtype=np.float64) # ==== RIT
-        all_importances = np.nan_to_num(all_importances)
+        # === RIT ===
+        if self.importance_avrg == "mean":
+            all_importances = np.nanmean(
+                all_importances, axis=0, dtype=np.float64
+            )
+        else:
+            all_importances = np.nanmedian(all_importances, axis=0)
+
+        all_importances = np.nan_to_num(all_importances, nan=0.0)
         s = np.sum(all_importances)
         if s > 0.:
             all_importances = all_importances / s
+        # === RIT ===
 
         return all_importances
 
@@ -666,6 +677,7 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
         class_weight=None,
         max_samples=None,
         base_estimator="deprecated",
+        importance_avrg="mean"
     ):
         super().__init__(
             estimator=estimator,
@@ -680,6 +692,7 @@ class ForestClassifier(ClassifierMixin, BaseForest, metaclass=ABCMeta):
             class_weight=class_weight,
             max_samples=max_samples,
             base_estimator=base_estimator,
+            importance_avrg=importance_avrg
         )
 
     @staticmethod
@@ -934,6 +947,7 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
         warm_start=False,
         max_samples=None,
         base_estimator="deprecated",
+        importance_avrg="mean"
     ):
         super().__init__(
             estimator,
@@ -947,6 +961,7 @@ class ForestRegressor(RegressorMixin, BaseForest, metaclass=ABCMeta):
             warm_start=warm_start,
             max_samples=max_samples,
             base_estimator=base_estimator,
+            importance_avrg=importance_avrg
         )
 
     def predict(self, X):
@@ -1281,6 +1296,10 @@ class RandomForestClassifier(ForestClassifier):
         If True then the importance values of the features of each tree are 
         normalized (divided by the sum of all importances - classical Random Forest),
         otherwise the impurity improvements without normalization are used.
+
+    importance_avrg : {"mean", "median"}, default="mean"
+        The way of averaging over the feature importances of the trees in ensemble.
+        "mean" corresponds to classical Random Forest. 
 # === RIT === end
 
     Attributes
@@ -1425,7 +1444,8 @@ class RandomForestClassifier(ForestClassifier):
         max_samples=None,
         rit_alpha=None,
         subforest_importance=False,
-        normalize_importance=True
+        normalize_importance=True,
+        importance_avrg="mean"
     ):
         super().__init__(
             estimator=DecisionTreeClassifier(),
@@ -1452,10 +1472,9 @@ class RandomForestClassifier(ForestClassifier):
             warm_start=warm_start,
             class_weight=class_weight,
             max_samples=max_samples,
+            importance_avrg=importance_avrg
         )
-        # print('to set to forest:', not subforest_importance, normalize_importance)
         self.estimator.fillna = not subforest_importance
-        # print('forest:', self.estimator.fillna, self.estimator.normalize_importance)
         self.criterion = criterion
         self.max_depth = max_depth
         self.min_samples_split = min_samples_split
@@ -1666,6 +1685,10 @@ class RandomForestRegressor(ForestRegressor):
         If True then the importance values of the features of each tree are 
         normalized (divided by the sum of all importances - classical Random Forest),
         otherwise the impurity improvements without normalization are used.
+
+    importance_avrg : {"mean", "median"}, default="mean"
+        The way of averaging over the feature importances of the trees in ensemble.
+        "mean" corresponds to classical Random Forest. 
 # === RIT === end
 
         .. versionadded:: 0.22
@@ -1799,7 +1822,8 @@ class RandomForestRegressor(ForestRegressor):
         max_samples=None,
         rit_alpha=None,
         subforest_importance=False,
-        normalize_importance=True
+        normalize_importance=True,
+        importance_avrg="mean"
     ):
         super().__init__(
             estimator=DecisionTreeRegressor(),
@@ -1825,6 +1849,7 @@ class RandomForestRegressor(ForestRegressor):
             verbose=verbose,
             warm_start=warm_start,
             max_samples=max_samples,
+            importance_avrg=importance_avrg
         )
         self.estimator.fillna = not subforest_importance
         self.criterion = criterion

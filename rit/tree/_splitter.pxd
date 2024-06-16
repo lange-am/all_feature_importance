@@ -57,6 +57,7 @@ cdef class Splitter:
 
     # === NEW for RIT ===
     cdef cvector[SIZE_t] features_in_tree   # Indices in 'features' array of the features that are already in tree and not drawn yet 
+    cdef double[::1] features_in_tree_importances  #
     # === NEW for RIT ===                                            
 
     cdef SIZE_t start                       # Start position for the current node
