@@ -42,7 +42,7 @@ from sklearn.utils.validation import (
     assert_all_finite,
     check_is_fitted,
 )
-from . import _criterion, _splitter, _tree
+from ....rit.tree import _criterion, _splitter, _tree
 from ._criterion import Criterion
 from ._splitter import Splitter
 from ._tree import (
@@ -439,8 +439,9 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
                 np.array([1] * self.n_outputs_, dtype=np.intp),
                 self.n_outputs_,
             )
+        
 
-        if self.max_leaf_nodes < 0:
+        if (self.max_leaf_nodes is not None) and (self.max_leaf_nodes < 0):
             builder = DepthFirstTreeBuilder(
                 splitter,
                 min_samples_split,
