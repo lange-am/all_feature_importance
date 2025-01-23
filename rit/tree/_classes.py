@@ -42,7 +42,7 @@ from sklearn.utils.validation import (
     assert_all_finite,
     check_is_fitted,
 )
-from ....rit.tree import _criterion, _splitter, _tree
+from . import _criterion, _splitter, _tree
 from ._criterion import Criterion
 from ._splitter import Splitter
 from ._tree import (
