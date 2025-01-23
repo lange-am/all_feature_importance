@@ -439,7 +439,6 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
                 np.array([1] * self.n_outputs_, dtype=np.intp),
                 self.n_outputs_,
             )
-        
 
         if (self.max_leaf_nodes is not None) and (self.max_leaf_nodes < 0):
             builder = DepthFirstTreeBuilder(
