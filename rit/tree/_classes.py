@@ -440,7 +440,7 @@ class BaseDecisionTree(MultiOutputMixin, BaseEstimator, metaclass=ABCMeta):
                 self.n_outputs_,
             )
 
-        if self.max_leaf_nodes < 0:
+        if (self.max_leaf_nodes is not None) and (self.max_leaf_nodes < 0):
             builder = DepthFirstTreeBuilder(
                 splitter,
                 min_samples_split,
