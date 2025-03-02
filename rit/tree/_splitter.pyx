@@ -56,7 +56,7 @@ cdef inline void _init_split(SplitRecord* self, SIZE_t start_pos) noexcept nogil
     self.n_missing = 0
 
 
-cdef class Splitter:
+cdef class Splitter: 
     """Abstract splitter class.
 
     Splitters are called by tree builders to find the best splits on both
